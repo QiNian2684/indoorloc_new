@@ -5,7 +5,6 @@ import pandas as pd
 import numpy as np
 from torch.utils.data import Dataset
 
-
 class UJIIndoorLocDataset(Dataset):
     def __init__(self, csv_file, transform=None, is_train=True):
         """

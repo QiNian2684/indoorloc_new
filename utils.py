@@ -8,7 +8,6 @@ import shutil
 import csv
 import numpy as np
 
-
 def create_result_dir(root_dir='result'):
     """
     在项目根目录下创建以当前时间戳命名的结果文件夹
@@ -19,7 +18,6 @@ def create_result_dir(root_dir='result'):
     print(f"[INFO] 创建结果文件夹：{result_dir}")
     return result_dir
 
-
 def save_metrics(metrics_dict, result_dir, filename='metrics.csv'):
     """
     将评价指标保存为 CSV 文件
@@ -28,7 +26,6 @@ def save_metrics(metrics_dict, result_dir, filename='metrics.csv'):
     file_path = os.path.join(result_dir, filename)
     df.to_csv(file_path, index=False)
     print(f"[INFO] 评价指标已保存至 {file_path}")
-
 
 def save_predictions(predictions, targets, result_dir, filename='predictions.csv'):
     """
@@ -50,7 +47,6 @@ def save_predictions(predictions, targets, result_dir, filename='predictions.csv
     df.to_csv(file_path, index=False)
     print(f"[INFO] 样本预测结果已保存至 {file_path}")
 
-
 def write_csv_row(csv_file_path, fieldnames, row_data):
     """
     写入一行数据到 CSV 文件（若文件不存在则创建并写入表头）
@@ -62,7 +58,6 @@ def write_csv_row(csv_file_path, fieldnames, row_data):
             writer.writeheader()
         writer.writerow(row_data)
     print(f"[INFO] 记录已写入 {csv_file_path}")
-
 
 def record_trial_result(trial, final_metrics, result_dir, csv_filename="trial_results.csv"):
     """
@@ -83,7 +78,6 @@ def record_trial_result(trial, final_metrics, result_dir, csv_filename="trial_re
         writer.writerow(row_data)
     print(f"[INFO] Trial {trial.number} 结果已记录到 {csv_path}")
 
-
 def plot_training_curves(train_losses, val_losses, trial_params, final_metrics, predictions, targets, result_dir,
                          trial_number):
     """
@@ -93,7 +87,6 @@ def plot_training_curves(train_losses, val_losses, trial_params, final_metrics, 
       3. 下方：训练与验证损失曲线
     图片保存为三位编号，如 001.png
     """
-    # 设置字体为 Times New Roman
     plt.rcParams['font.family'] = 'Times New Roman'
 
     # 计算 2D 误差（仅针对经纬度）
@@ -121,7 +114,6 @@ def plot_training_curves(train_losses, val_losses, trial_params, final_metrics, 
         params_text += f"{k}: {v}\n"
     metrics_text = "\nFinal Metrics:\n"
     for k, v in final_metrics.items():
-        # 格式化浮点数
         if isinstance(v, float):
             metrics_text += f"{k}: {v:.4f}\n"
         else:
@@ -143,7 +135,6 @@ def plot_training_curves(train_losses, val_losses, trial_params, final_metrics, 
     plt.savefig(image_path)
     plt.close(fig)
     print(f"[INFO] 训练曲线及评估图已保存至 {image_path}")
-
 
 def copy_best_trial_image(best_trial_number, result_dir):
     """

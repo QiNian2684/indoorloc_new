@@ -11,7 +11,6 @@ from optuna_tuner import run_optuna_study
 from utils import create_result_dir
 import pandas as pd
 
-
 def main(args):
     # 列出项目根目录所有文件，便于确认工程进展
     print("[INFO] 项目根目录文件列表：")
@@ -41,6 +40,7 @@ def main(args):
         test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        # 使用新版 IndoorLocalizationModel（有默认更复杂的结构）
         model = IndoorLocalizationModel(dropout_rate=dropout_rate)
         optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=2,
@@ -59,7 +59,6 @@ def main(args):
         print(metrics)
     else:
         print("无效的 mode，请选择 'train' 或 'tune'。")
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="UJIIndoorLoc 三坐标回归模型训练（含楼层回归）")

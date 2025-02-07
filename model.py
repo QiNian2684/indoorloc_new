@@ -5,70 +5,95 @@ import torch.nn as nn
 
 
 class IndoorLocalizationModel(nn.Module):
-    def __init__(self, dropout_rate=0.5):
+    def __init__(
+            self,
+            embedding_dim=128,
+            cnn_channels=(128, 256),
+            transformer_layers=4,
+            nhead=8,
+            dim_feedforward=256,
+            dropout_rate=0.5
+    ):
+        """
+        更复杂的模型结构，允许多层 CNN + 可配置 Transformer。
+
+        参数：
+            embedding_dim (int): RSSI 标量的初始嵌入维度。
+            cnn_channels (tuple/list): CNN 各层输出通道数，例如 (128, 256, 512) 等。
+            transformer_layers (int): TransformerEncoder 的层数。
+            nhead (int): Multi-head Attention 的头数。
+            dim_feedforward (int): Transformer 前馈网络的维度。
+            dropout_rate (float): Dropout 比例。
+        """
         super(IndoorLocalizationModel, self).__init__()
-        # 共享嵌入层：将每个 RSSI 标量映射到 64 维向量
-        self.embedding = nn.Linear(1, 64)
 
-        # 分支 A：1D CNN 提取局部特征
-        self.conv1 = nn.Conv1d(in_channels=64, out_channels=128, kernel_size=3, stride=1, padding=1)
-        self.bn1 = nn.BatchNorm1d(128)
-        self.conv2 = nn.Conv1d(in_channels=128, out_channels=128, kernel_size=3, stride=1, padding=1)
-        self.bn2 = nn.BatchNorm1d(128)
+        # 1) 将单个 RSSI 标量映射到 embedding_dim 维
+        self.embedding = nn.Linear(1, embedding_dim)
 
-        # 分支 B：Transformer 提取全局交互特征
+        # 2) CNN 分支
+        #    构建多层 CNN
+        cnn_layers = []
+        in_c = embedding_dim
+        for out_c in cnn_channels:
+            cnn_layers.append(nn.Conv1d(in_c, out_c, kernel_size=3, stride=1, padding=1))
+            cnn_layers.append(nn.BatchNorm1d(out_c))
+            cnn_layers.append(nn.ReLU())
+            in_c = out_c
+        self.cnn = nn.Sequential(*cnn_layers)
+
+        # 3) Transformer 分支
+        #    根据指定的层数、注意力头数和前馈维度来初始化
         encoder_layer = nn.TransformerEncoderLayer(
-            d_model=64,
-            nhead=4,
-            dim_feedforward=128,
+            d_model=embedding_dim,
+            nhead=nhead,
+            dim_feedforward=dim_feedforward,
             dropout=dropout_rate,
             activation='relu'
         )
-        self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=2)
-        self.fc_transformer = nn.Linear(64, 128)
+        self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=transformer_layers)
 
-        # 特征融合层
+        # 额外线性层：将 Transformer 输出从 embedding_dim 映射到 CNN 分支的最后输出通道数 in_c
+        self.fc_transformer = nn.Linear(embedding_dim, in_c)
+
+        # 4) 特征融合
+        #    CNN 分支输出 & Transformer 分支输出拼接后，再过一层全连接做融合
         self.fusion_fc = nn.Sequential(
-            nn.Linear(256, 128),
+            nn.Linear(in_c * 2, in_c),
             nn.ReLU(),
             nn.Dropout(dropout_rate)
         )
 
-        # 回归头：将融合特征映射到三维输出 (x, y, floor)
-        self.regressor = nn.Linear(128, 3)
+        # 5) 最终回归头 (x, y, floor)
+        self.regressor = nn.Linear(in_c, 3)
 
     def forward(self, x):
-        # 输入 x: [batch_size, 520]（归一化后的 RSSI 向量）
-        # 扩展最后一维为 [batch_size, 520, 1]
-        x = x.unsqueeze(-1)
-        x = self.embedding(x)  # [batch, 520, 64]
+        """
+        输入 x: [batch_size, 520]（归一化后的 RSSI 向量）
+        """
+        # 先扩展最后一维，以便输入到 embedding
+        x = x.unsqueeze(-1)  # [batch_size, 520, 1]
+        x = self.embedding(x)  # [batch_size, 520, embedding_dim]
         x = torch.relu(x)
 
-        # 分支 A：1D CNN
-        # 1D 卷积要求输入形状为 [batch, channels, length]
-        x_a = x.permute(0, 2, 1)  # [batch, 64, 520]
-        x_a = self.conv1(x_a)
-        x_a = self.bn1(x_a)
-        x_a = torch.relu(x_a)
-        x_a = self.conv2(x_a)
-        x_a = self.bn2(x_a)
-        x_a = torch.relu(x_a)
-        # 全局平均池化：在序列维度上取均值，输出形状 [batch, 128]
-        x_a = x_a.mean(dim=2)
+        # CNN 分支
+        # 1D 卷积需要形状: [batch_size, channels, seq_len]
+        x_cnn = x.permute(0, 2, 1)  # [batch, embedding_dim, 520]
+        x_cnn = self.cnn(x_cnn)  # 若多层 CNN，输出 shape=[batch, out_c, 520]
+        x_cnn = x_cnn.mean(dim=2)  # 全局平均池化 => [batch, out_c]
 
-        # 分支 B：Transformer
-        # Transformer 输入形状 [seq_len, batch, embed_dim]
-        x_b = x.permute(1, 0, 2)  # [520, batch, 64]
-        x_b = self.transformer_encoder(x_b)
-        x_b = x_b.permute(1, 0, 2)  # [batch, 520, 64]
-        x_b = x_b.mean(dim=1)  # 全局平均池化 -> [batch, 64]
-        x_b = self.fc_transformer(x_b)  # [batch, 128]
-        x_b = torch.relu(x_b)
+        # Transformer 分支
+        # 需要 [seq_len, batch, embed_dim]
+        x_trans = x.permute(1, 0, 2)  # [520, batch, embedding_dim]
+        x_trans = self.transformer_encoder(x_trans)  # [520, batch, embedding_dim]
+        x_trans = x_trans.permute(1, 0, 2)  # [batch, 520, embedding_dim]
+        x_trans = x_trans.mean(dim=1)  # 全局平均池化 => [batch, embedding_dim]
+        x_trans = self.fc_transformer(x_trans)  # => [batch, out_c]
+        x_trans = torch.relu(x_trans)
 
         # 特征融合
-        x_fusion = torch.cat([x_a, x_b], dim=1)  # [batch, 256]
-        x_fusion = self.fusion_fc(x_fusion)  # [batch, 128]
+        x_fusion = torch.cat([x_cnn, x_trans], dim=1)  # [batch, out_c * 2]
+        x_fusion = self.fusion_fc(x_fusion)  # [batch, out_c]
 
-        # 回归输出 (x, y, floor)
+        # 最终三维回归
         output = self.regressor(x_fusion)  # [batch, 3]
         return output

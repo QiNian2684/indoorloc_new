@@ -7,7 +7,6 @@ from utils import save_metrics, save_predictions, plot_training_curves, record_t
 import pandas as pd
 import os
 
-
 def train_model(model, train_loader, test_loader, criterion, optimizer, scheduler, device, num_epochs,
                 early_stop_patience, result_dir, trial=None):
     best_val_loss = float('inf')
