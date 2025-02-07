@@ -20,7 +20,7 @@ def objective(trial, main_result_dir):
 
     # 1) 采样超参数
     lr = trial.suggest_loguniform('lr', 1e-4, 1e-2)
-    dropout_rate = trial.suggest_uniform('dropout_rate', 0.3, 0.7)
+    dropout_rate = trial.suggest_uniform('dropout_rate', 0.1, 0.5)
     weight_decay = trial.suggest_loguniform('weight_decay', 1e-6, 1e-4)
     batch_size = trial.suggest_categorical('batch_size', [16, 32, 48, 64, 128])
     early_stop_patience = trial.suggest_int('early_stop_patience', 3, 7)
