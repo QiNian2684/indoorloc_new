@@ -9,6 +9,11 @@ import os
 
 def train_model(model, train_loader, test_loader, criterion, optimizer, scheduler, device, num_epochs,
                 early_stop_patience, result_dir, trial=None):
+    """
+    针对单次训练过程的封装。
+    每次都在 result_dir 下保存最优模型、评估指标、可视化等。
+    trial 用于 Optuna 若要支持中途 pruning 等。
+    """
     best_val_loss = float('inf')
     best_epoch = 0
     train_losses = []
@@ -51,11 +56,13 @@ def train_model(model, train_loader, test_loader, criterion, optimizer, schedule
         if scheduler is not None:
             scheduler.step(epoch_val_loss)
 
+        # Optuna 进行中途裁剪
         if trial is not None:
             trial.report(epoch_val_loss, epoch)
             if trial.should_prune():
                 raise Exception("Trial pruned")
 
+        # 早停 + 保存最好模型
         if epoch_val_loss < best_val_loss:
             best_val_loss = epoch_val_loss
             best_epoch = epoch
@@ -65,6 +72,7 @@ def train_model(model, train_loader, test_loader, criterion, optimizer, schedule
             print(f"Early stopping at epoch {epoch + 1}")
             break
 
+    # 评估阶段：加载最优模型，计算各种指标，保存
     model.load_state_dict(torch.load(os.path.join(result_dir, "best_model.pth")))
     model.eval()
     predictions_list = []
@@ -99,6 +107,7 @@ def train_model(model, train_loader, test_loader, criterion, optimizer, schedule
     save_metrics(metrics_dict, result_dir)
     save_predictions(predictions, targets_arr, result_dir)
 
+    # 记录高误差样本
     test_csv = "UJIndoorLoc/validationData.csv"
     try:
         test_data = pd.read_csv(test_csv)
@@ -120,10 +129,19 @@ def train_model(model, train_loader, test_loader, criterion, optimizer, schedule
     except Exception as e:
         print(f"[WARNING] 无法记录高误差样本：{e}")
 
+    # 绘制训练曲线 & 记录结果
     trial_number = trial.number if trial is not None else -1
     trial_params = trial.params if trial is not None else {}
-    plot_training_curves(train_losses, val_losses, trial_params, metrics_dict, predictions, targets_arr, result_dir,
-                         trial_number)
+    plot_training_curves(
+        train_losses,
+        val_losses,
+        trial_params,
+        metrics_dict,
+        predictions,
+        targets_arr,
+        result_dir,
+        trial_number
+    )
 
     if trial is not None:
         record_trial_result(trial, metrics_dict, result_dir)

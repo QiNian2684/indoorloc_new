@@ -131,16 +131,9 @@ def plot_training_curves(train_losses, val_losses, trial_params, final_metrics, 
     ax3.set_title('Training and Validation Loss')
     ax3.legend()
 
-    image_path = os.path.join(result_dir, f"{trial_number:03d}.png")
+    # 将图像命名为与 trial_number 一致（例如 001.png）
+    png_name = f"{trial_number+1:03d}.png" if trial_number >= 0 else "000.png"
+    image_path = os.path.join(result_dir, png_name)
     plt.savefig(image_path)
     plt.close(fig)
     print(f"[INFO] 训练曲线及评估图已保存至 {image_path}")
-
-def copy_best_trial_image(best_trial_number, result_dir):
-    """
-    将最佳 trial 的图片复制为 000.png
-    """
-    best_image = os.path.join(result_dir, f"{best_trial_number:03d}.png")
-    best_copy = os.path.join(result_dir, "000.png")
-    shutil.copy(best_image, best_copy)
-    print(f"[INFO] 最佳 trial 的图片已复制为 {best_copy}")

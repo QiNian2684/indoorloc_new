@@ -55,7 +55,7 @@ class UJIIndoorLocDataset(Dataset):
 
     def __getitem__(self, idx):
         sample = self.data.iloc[idx]
-        # 获取 RSSI 向量，形状 (520, )
+        # 获取 RSSI 向量，形状 (520,)
         rssi = sample[self.rssi_columns].values.astype(np.float32)
         if self.transform:
             rssi = self.transform(rssi)

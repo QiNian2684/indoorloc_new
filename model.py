@@ -52,11 +52,10 @@ class IndoorLocalizationModel(nn.Module):
         )
         self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=transformer_layers)
 
-        # 额外线性层：将 Transformer 输出从 embedding_dim 映射到 CNN 分支的最后输出通道数 in_c
+        # 映射 Transformer 输出到与 CNN 输出同样的通道数
         self.fc_transformer = nn.Linear(embedding_dim, in_c)
 
-        # 4) 特征融合
-        #    CNN 分支输出 & Transformer 分支输出拼接后，再过一层全连接做融合
+        # 4) 特征融合 (CNN + Transformer)
         self.fusion_fc = nn.Sequential(
             nn.Linear(in_c * 2, in_c),
             nn.ReLU(),
@@ -76,13 +75,11 @@ class IndoorLocalizationModel(nn.Module):
         x = torch.relu(x)
 
         # CNN 分支
-        # 1D 卷积需要形状: [batch_size, channels, seq_len]
         x_cnn = x.permute(0, 2, 1)  # [batch, embedding_dim, 520]
-        x_cnn = self.cnn(x_cnn)  # 若多层 CNN，输出 shape=[batch, out_c, 520]
+        x_cnn = self.cnn(x_cnn)  # [batch, out_c, 520]
         x_cnn = x_cnn.mean(dim=2)  # 全局平均池化 => [batch, out_c]
 
         # Transformer 分支
-        # 需要 [seq_len, batch, embed_dim]
         x_trans = x.permute(1, 0, 2)  # [520, batch, embedding_dim]
         x_trans = self.transformer_encoder(x_trans)  # [520, batch, embedding_dim]
         x_trans = x_trans.permute(1, 0, 2)  # [batch, 520, embedding_dim]
