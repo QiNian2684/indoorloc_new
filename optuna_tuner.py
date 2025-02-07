@@ -13,34 +13,35 @@ from utils import create_result_dir, copy_best_trial_image
 
 
 def objective(trial, result_dir):
-    # 超参数采样
+    # 超参数采样（所有模型及训练相关参数均在此采样）
     lr = trial.suggest_loguniform('lr', 1e-4, 1e-2)
     dropout_rate = trial.suggest_uniform('dropout_rate', 0.3, 0.7)
     weight_decay = trial.suggest_loguniform('weight_decay', 1e-6, 1e-4)
 
-    # 固定参数
-    batch_size = 64
-    num_epochs = 50
-    early_stop_patience = 5
+    # 将 batch_size 和 early_stop_patience 列入调参
+    batch_size = trial.suggest_categorical('batch_size', [16, 32, 48, 64, 128])
+    early_stop_patience = trial.suggest_int('early_stop_patience', 3, 7)
 
-    # 加载训练集和测试集（已分好）
+    num_epochs = 50
+
+    # 打印当前超参数组合
+    print(f"[INFO] Trial {trial.number}: lr={lr:.6f}, dropout_rate={dropout_rate:.4f}, "
+          f"weight_decay={weight_decay:.6f}, batch_size={batch_size}, early_stop_patience={early_stop_patience}")
+
+    # 加载训练集与测试集（已分好）
     train_csv = "UJIndoorLoc/trainingData.csv"
     test_csv = "UJIndoorLoc/validationData.csv"
-
     train_dataset = UJIIndoorLocDataset(train_csv, is_train=True)
     test_dataset = UJIIndoorLocDataset(test_csv, is_train=True)
-
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
-    # 初始化模型、优化器、调度器
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = IndoorLocalizationModel(dropout_rate=dropout_rate)
     optimizer = Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
     scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=2, verbose=True)
     criterion = torch.nn.MSELoss()
 
-    # 训练模型
     try:
         best_val_loss, metrics = train_model(
             model, train_loader, test_loader,
@@ -57,7 +58,6 @@ def objective(trial, result_dir):
 
 
 def run_optuna_study(n_trials=500):
-    # 创建一个全局结果文件夹（包含所有 trial 的图片）
     result_dir = create_result_dir()
     study = optuna.create_study(direction="minimize")
     study.optimize(lambda trial: objective(trial, result_dir), n_trials=n_trials)
@@ -73,7 +73,7 @@ def run_optuna_study(n_trials=500):
     best_trial_number = best_trial.number
     copy_best_trial_image(best_trial_number, result_dir)
 
-    # 保存所有 trial 的结果
+    # 保存所有 trial 结果
     study_df = study.trials_dataframe()
     study_df.to_csv(os.path.join(result_dir, "optuna_study_results.csv"), index=False)
     print("[INFO] 超参数调优完成。")

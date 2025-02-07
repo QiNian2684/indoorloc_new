@@ -13,31 +13,30 @@ import pandas as pd
 
 
 def main(args):
-    # 列出项目根目录的所有文件
+    # 列出项目根目录所有文件，便于确认工程进展
     print("[INFO] 项目根目录文件列表：")
     for f in os.listdir('.'):
         print(f"  {f}")
 
     if args.mode == 'tune':
-        # 调参模式：运行 500 次 Optuna 试验
         print("[INFO] 开始使用 Optuna 进行超参数调优...")
-        study, result_dir = run_optuna_study(n_trials=500)
+        study, result_dir = run_optuna_study(n_trials=args.n_trials)
     elif args.mode == 'train':
-        # 最终训练模式，使用指定超参数（可替换为调参获得的最佳超参数）
         result_dir = create_result_dir()
         lr = 1e-3
         dropout_rate = 0.5
         weight_decay = 1e-5
-        batch_size = 64
+        batch_size = args.batch_size if args.batch_size is not None else 64
         num_epochs = 50
-        early_stop_patience = 5
+        early_stop_patience = args.early_stop_patience if args.early_stop_patience is not None else 5
 
-        # 加载训练集和测试集（已分好）
+        print(f"[INFO] Training parameters: lr={lr}, dropout_rate={dropout_rate}, weight_decay={weight_decay}, "
+              f"batch_size={batch_size}, early_stop_patience={early_stop_patience}")
+
         train_csv = "UJIndoorLoc/trainingData.csv"
         test_csv = "UJIndoorLoc/validationData.csv"
         train_dataset = UJIIndoorLocDataset(train_csv, is_train=True)
         test_dataset = UJIIndoorLocDataset(test_csv, is_train=True)
-
         train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
         test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
@@ -54,7 +53,6 @@ def main(args):
             criterion, optimizer, scheduler, device,
             num_epochs, early_stop_patience, result_dir
         )
-        # 保存最终评价指标
         metrics_df = pd.DataFrame([metrics])
         metrics_df.to_csv(os.path.join(result_dir, "final_metrics.csv"), index=False)
         print("[INFO] 最终训练完成。评价指标如下：")
@@ -64,10 +62,14 @@ def main(args):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="UJIIndoorLoc 三坐标回归模型训练（包含楼层回归）")
+    parser = argparse.ArgumentParser(description="UJIIndoorLoc 三坐标回归模型训练（含楼层回归）")
     parser.add_argument('--mode', type=str, default='train', choices=['train', 'tune'],
                         help="模式：'train' 为最终训练，'tune' 为超参数调优")
     parser.add_argument('--n_trials', type=int, default=500,
-                        help="超参数调优时的试验次数（mode 为 'tune' 时有效）")
+                        help="调参试验次数（mode 为 'tune' 时有效）")
+    parser.add_argument('--batch_size', type=int, default=None,
+                        help="训练模式下的 batch_size（若未指定则使用默认值 64）")
+    parser.add_argument('--early_stop_patience', type=int, default=None,
+                        help="训练模式下的 early_stop_patience（若未指定则使用默认值 5）")
     args = parser.parse_args()
     main(args)

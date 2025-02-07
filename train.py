@@ -3,7 +3,9 @@
 import torch
 import numpy as np
 from tqdm import tqdm
-from utils import save_metrics, save_predictions, plot_training_curves
+from utils import save_metrics, save_predictions, plot_training_curves, record_trial_result
+import pandas as pd
+import os
 
 
 def train_model(model, train_loader, test_loader, criterion, optimizer, scheduler, device, num_epochs,
@@ -13,6 +15,8 @@ def train_model(model, train_loader, test_loader, criterion, optimizer, schedule
     train_losses = []
     val_losses = []
     model.to(device)
+
+    print(f"[INFO] Starting training for {num_epochs} epochs with early_stop_patience = {early_stop_patience}")
 
     for epoch in range(num_epochs):
         model.train()
@@ -31,7 +35,6 @@ def train_model(model, train_loader, test_loader, criterion, optimizer, schedule
         epoch_train_loss = running_loss / len(train_loader.dataset)
         train_losses.append(epoch_train_loss)
 
-        # 验证阶段，使用测试集作为验证集
         model.eval()
         val_loss = 0.0
         with torch.no_grad():
@@ -46,46 +49,39 @@ def train_model(model, train_loader, test_loader, criterion, optimizer, schedule
 
         print(f"Epoch [{epoch + 1}/{num_epochs}], Train Loss: {epoch_train_loss:.4f}, Val Loss: {epoch_val_loss:.4f}")
 
-        # 调整学习率
         if scheduler is not None:
             scheduler.step(epoch_val_loss)
 
-        # 如果传入 trial，则向 Optuna 报告中间结果
         if trial is not None:
             trial.report(epoch_val_loss, epoch)
             if trial.should_prune():
                 raise Exception("Trial pruned")
 
-        # Early Stopping 策略
         if epoch_val_loss < best_val_loss:
             best_val_loss = epoch_val_loss
             best_epoch = epoch
-            # 保存当前最佳模型
             best_model_state = model.state_dict()
-            torch.save(best_model_state, f"{result_dir}/best_model.pth")
+            torch.save(best_model_state, os.path.join(result_dir, "best_model.pth"))
         elif epoch - best_epoch >= early_stop_patience:
             print(f"Early stopping at epoch {epoch + 1}")
             break
 
-    # 加载最佳模型进行测试评估
-    model.load_state_dict(torch.load(f"{result_dir}/best_model.pth"))
+    model.load_state_dict(torch.load(os.path.join(result_dir, "best_model.pth")))
     model.eval()
-    predictions = []
+    predictions_list = []
     targets_list = []
     with torch.no_grad():
         for inputs, targets in tqdm(test_loader, desc="Testing"):
             inputs = inputs.to(device)
             outputs = model(inputs)
-            predictions.append(outputs.cpu().numpy())
+            predictions_list.append(outputs.cpu().numpy())
             targets_list.append(targets.cpu().numpy())
-    predictions = np.concatenate(predictions, axis=0)
+    predictions = np.concatenate(predictions_list, axis=0)
     targets_arr = np.concatenate(targets_list, axis=0)
 
-    # 计算评价指标
     mse = np.mean((predictions - targets_arr) ** 2)
     rmse = np.sqrt(mse)
     mae = np.mean(np.abs(predictions - targets_arr))
-    # 计算水平定位误差（仅对 x, y 坐标计算欧氏距离）
     horizontal_errors = np.sqrt(
         (predictions[:, 0] - targets_arr[:, 0]) ** 2 + (predictions[:, 1] - targets_arr[:, 1]) ** 2)
     avg_error = np.mean(horizontal_errors)
@@ -104,9 +100,33 @@ def train_model(model, train_loader, test_loader, criterion, optimizer, schedule
     save_metrics(metrics_dict, result_dir)
     save_predictions(predictions, targets_arr, result_dir)
 
-    # 绘制训练曲线图，包含超参数和最终评价指标
+    test_csv = "UJIndoorLoc/validationData.csv"
+    try:
+        test_data = pd.read_csv(test_csv)
+        horizontal_err = np.sqrt(
+            (predictions[:, 0] - targets_arr[:, 0]) ** 2 + (predictions[:, 1] - targets_arr[:, 1]) ** 2)
+        threshold = 15.0
+        high_error_indices = np.where(horizontal_err > threshold)[0]
+        if len(high_error_indices) > 0:
+            high_error_data = test_data.iloc[high_error_indices].copy()
+            high_error_data['pred_x'] = predictions[high_error_indices, 0]
+            high_error_data['pred_y'] = predictions[high_error_indices, 1]
+            high_error_data['pred_floor'] = predictions[high_error_indices, 2]
+            high_error_data['error_distance'] = horizontal_err[high_error_indices]
+            high_error_csv = os.path.join(result_dir, "high_error_samples.csv")
+            high_error_data.to_csv(high_error_csv, index=False)
+            print(f"[INFO] 高误差样本已保存至 {high_error_csv}")
+        else:
+            print("[INFO] 没有发现高误差样本。")
+    except Exception as e:
+        print(f"[WARNING] 无法记录高误差样本：{e}")
+
     trial_number = trial.number if trial is not None else -1
     trial_params = trial.params if trial is not None else {}
-    plot_training_curves(train_losses, val_losses, trial_params, metrics_dict, result_dir, trial_number)
+    plot_training_curves(train_losses, val_losses, trial_params, metrics_dict, predictions, targets_arr, result_dir,
+                         trial_number)
+
+    if trial is not None:
+        record_trial_result(trial, metrics_dict, result_dir)
 
     return best_val_loss, metrics_dict

@@ -41,11 +41,11 @@ class IndoorLocalizationModel(nn.Module):
         # 输入 x: [batch_size, 520]（归一化后的 RSSI 向量）
         # 扩展最后一维为 [batch_size, 520, 1]
         x = x.unsqueeze(-1)
-        x = self.embedding(x)  # 形状：[batch, 520, 64]
+        x = self.embedding(x)  # [batch, 520, 64]
         x = torch.relu(x)
 
         # 分支 A：1D CNN
-        # 1D卷积要求输入形状为 [batch, channels, length]，因此需要转换维度
+        # 1D 卷积要求输入形状为 [batch, channels, length]
         x_a = x.permute(0, 2, 1)  # [batch, 64, 520]
         x_a = self.conv1(x_a)
         x_a = self.bn1(x_a)
@@ -53,20 +53,19 @@ class IndoorLocalizationModel(nn.Module):
         x_a = self.conv2(x_a)
         x_a = self.bn2(x_a)
         x_a = torch.relu(x_a)
-        # 在序列维度上做全局平均池化，输出形状：[batch, 128]
+        # 全局平均池化：在序列维度上取均值，输出形状 [batch, 128]
         x_a = x_a.mean(dim=2)
 
         # 分支 B：Transformer
-        # Transformer 接受的输入形状为 [seq_len, batch, embed_dim]
+        # Transformer 输入形状 [seq_len, batch, embed_dim]
         x_b = x.permute(1, 0, 2)  # [520, batch, 64]
         x_b = self.transformer_encoder(x_b)
-        x_b = x_b.permute(1, 0, 2)  # 转回 [batch, 520, 64]
-        # 全局平均池化：在序列维度上取均值
-        x_b = x_b.mean(dim=1)  # [batch, 64]
+        x_b = x_b.permute(1, 0, 2)  # [batch, 520, 64]
+        x_b = x_b.mean(dim=1)  # 全局平均池化 -> [batch, 64]
         x_b = self.fc_transformer(x_b)  # [batch, 128]
         x_b = torch.relu(x_b)
 
-        # 特征融合：拼接两个分支输出
+        # 特征融合
         x_fusion = torch.cat([x_a, x_b], dim=1)  # [batch, 256]
         x_fusion = self.fusion_fc(x_fusion)  # [batch, 128]
 
